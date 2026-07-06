@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- WinExe = コンソール窓を出さない GUI アプリ。トレイ常駐に必須 -->
+    <OutputType>WinExe</OutputType>
+    <!-- net8.0-windows: WinForms(NotifyIcon)を使うため Windows 専用 TFM -->
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>ClaudeStatusbar</AssemblyName>
+    <!-- 単一 exe 配布を見据えて。開発中はデバッグしやすさ優先で普通ビルド -->
+    <RootNamespace>ClaudeStatusbar</RootNamespace>
+    <!-- exe・タスクバー・ウィンドウのアイコン -->
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+</Project>
