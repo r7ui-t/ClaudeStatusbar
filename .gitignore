@@ -1,0 +1,17 @@
+# Visual Studio related
+.vs/
+*.user
+*.suo
+*.userosscache
+
+# Build artifacts
+bin/
+obj/
+publish/
+
+# Rider/IDE
+.idea/
+
+# OS generated files
+Thumbs.db
+.DS_Store
