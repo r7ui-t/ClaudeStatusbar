@@ -15,6 +15,10 @@ public sealed class TrayApp : ApplicationContext
     private readonly ClaudeUsageClient _client = new();
     private Icon? _currentIcon;
 
+    private readonly Settings _settings;
+    private IconStyle _style;
+    private UsageSnapshot? _last; // 直近の取得結果。スタイル切替時の再描画に使う
+
     // メニュー項目（都度作り直さず更新する）
     private readonly ToolStripMenuItem _miStatus;
     private readonly ToolStripMenuItem _miSession;
@@ -22,9 +26,14 @@ public sealed class TrayApp : ApplicationContext
     private readonly ToolStripMenuItem _miScoped;
     private readonly ToolStripMenuItem _miPlan;
     private readonly ToolStripMenuItem _miUpdated;
+    private readonly ToolStripMenuItem _miStyleNumber;
+    private readonly ToolStripMenuItem _miStyleRing;
 
     public TrayApp()
     {
+        _settings = Settings.Load();
+        _style = _settings.Style;
+
         _miStatus = new ToolStripMenuItem("読み込み中…") { Enabled = false };
         _miSession = new ToolStripMenuItem("セッション: —") { Enabled = false };
         _miWeekly = new ToolStripMenuItem("週次: —") { Enabled = false };
@@ -42,6 +51,17 @@ public sealed class TrayApp : ApplicationContext
         menu.Items.Add(_miPlan);
         menu.Items.Add(_miUpdated);
         menu.Items.Add(new ToolStripSeparator());
+
+        // アイコン表示スタイルの切替（右クリックメニュー内のサブメニュー）
+        var styleMenu = new ToolStripMenuItem("アイコン表示");
+        _miStyleNumber = new ToolStripMenuItem("数字（大きく見やすい）");
+        _miStyleRing = new ToolStripMenuItem("リング＋数字");
+        _miStyleNumber.Click += (_, _) => SelectStyle(IconStyle.Number);
+        _miStyleRing.Click += (_, _) => SelectStyle(IconStyle.Ring);
+        styleMenu.DropDownItems.Add(_miStyleNumber);
+        styleMenu.DropDownItems.Add(_miStyleRing);
+        menu.Items.Add(styleMenu);
+        UpdateStyleChecks();
 
         var miRefresh = new ToolStripMenuItem("今すぐ更新");
         miRefresh.Click += async (_, _) => await RefreshAsync();
@@ -90,6 +110,8 @@ public sealed class TrayApp : ApplicationContext
 
     private void UpdateUi(UsageSnapshot s)
     {
+        _last = s; // スタイル切替時に再描画できるよう保持
+
         if (!s.Ok)
         {
             SwapIcon(IconRenderer.RenderError());
@@ -103,7 +125,7 @@ public sealed class TrayApp : ApplicationContext
             return;
         }
 
-        SwapIcon(IconRenderer.Render(s.DisplayPercent, s.Severity ?? "normal"));
+        SwapIcon(IconRenderer.Render(s.DisplayPercent, s.Severity ?? "normal", _style));
 
         string sessionLine = $"セッション: {Pct(s.SessionPercent)}  (リセット {Countdown(s.SessionReset)})";
         string weeklyLine = $"週次: {Pct(s.WeeklyPercent)}  (リセット {Countdown(s.WeeklyReset)})";
@@ -127,6 +149,26 @@ public sealed class TrayApp : ApplicationContext
 
         // ツールチップ（マウスホバー時）。64文字制限に注意
         _tray.Text = Truncate($"Claude  S:{Pct(s.SessionPercent)} / W:{Pct(s.WeeklyPercent)}");
+    }
+
+    // スタイルを選び、即座に再描画して選択を保存する
+    private void SelectStyle(IconStyle style)
+    {
+        if (_style == style) return;
+        _style = style;
+        UpdateStyleChecks();
+        _settings.IconStyle = style.ToString();
+        _settings.Save();
+
+        // 直近データがあればそのまま描き替える（無ければ次回ポーリングで反映）
+        if (_last is { Ok: true } s)
+            SwapIcon(IconRenderer.Render(s.DisplayPercent, s.Severity ?? "normal", _style));
+    }
+
+    private void UpdateStyleChecks()
+    {
+        _miStyleNumber.Checked = _style == IconStyle.Number;
+        _miStyleRing.Checked = _style == IconStyle.Ring;
     }
 
     private void SwapIcon(Icon next)
