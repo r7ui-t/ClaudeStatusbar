@@ -1,58 +1,45 @@
 # ClaudeStatusbar
 
-A Windows system-tray app that shows your **Claude Code usage limits** at a glance — session and weekly windows, with a countdown to the next reset.
+Claude Code の**利用上限**（セッション/週次）と次のリセットまでの残り時間を、Windows のタスクトレイに一目で表示するアプリです。
 
-## Features
+## 機能
 
-- Ring-gauge tray icon showing the current usage percentage, color-coded by severity (green / amber / red)
-- Right-click menu with:
-  - Session usage (5-hour window) + reset countdown
-  - Weekly usage (7-day window) + reset countdown
-  - Model-scoped weekly usage (per-model limit) when present
-  - Subscription plan and last-updated time
-- Auto-refresh every 5 minutes; double-click the icon or "Refresh now" for on-demand updates
-- No extra login — reuses the OAuth token Claude Code already stores locally
-- Single self-contained `.exe` — runs on machines without the .NET runtime installed
+- トレイアイコンに現在の使用率を表示。severity に応じて色分け（緑 / 黄 / 赤）
+- アイコン表示は右クリックメニューから切替可能
+  - 数字（大きく見やすい）
+  - リング＋数字
+- 右クリックメニューで以下を表示
+  - セッション使用率（5時間枠）＋リセットまでの残り時間
+  - 週次使用率（7日枠）＋リセットまでの残り時間
+  - モデル別の週次使用率（存在する場合）
+  - プランと最終更新時刻
+- 5分ごとに自動更新（アイコンのダブルクリック、または「今すぐ更新」で即時更新）
+- 追加ログイン不要（Claude Code が保存済みの OAuth トークンを再利用）
+- 単一の `.exe`（self-contained）— .NET ランタイム未導入の PC でも動作
 
-## Requirements
+## 動作条件
 
-- Windows 10/11
-- Claude Code installed and logged in (so `%USERPROFILE%\.claude\.credentials.json` exists)
+- Windows 10 / 11
+- Claude Code がインストール済みでログイン済み（`%USERPROFILE%\.claude\.credentials.json` が存在すること）
 
-## Build & run
+## ビルドと実行
 
 ```powershell
-# run from source
+# ソースから実行
 dotnet run -c Release
 
-# produce a single self-contained exe
+# 単一 exe（self-contained）を発行
 dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
 ```
 
-The exe lands in `bin/Release/net8.0-windows/win-x64/publish/ClaudeStatusbar.exe`.
+exe は `bin/Release/net8.0-windows/win-x64/publish/ClaudeStatusbar.exe` に生成されます。
 
-## Usage notes
+## 使い方メモ
 
-- The tray icon lives in the Windows 11 hidden-icons overflow (the `^` chevron) by default. Drag it onto the taskbar to keep it visible.
-- If the token fully expires, launch Claude Code once to refresh it; the app picks up the new token on the next poll.
+- Windows 11 では新規トレイアイコンが既定で隠れているインジケーター（`^`）の中に入ります。常時表示したい場合はタスクバーへドラッグしてください。
+- トークンが完全に失効した場合は Claude Code を一度起動すればトークンが更新され、次回ポーリングで自動的に反映されます。
+- アイコン表示の選択は `%APPDATA%\ClaudeStatusbar\settings.json` に保存され、次回起動時も維持されます。
 
-## License
+## ライセンス
 
-MIT — see [LICENSE](LICENSE).
-
----
-
-## 日本語
-
-Claude Code の利用上限（セッション/週次）と次のリセットまでの残り時間を Windows のタスクトレイに表示するアプリです。
-
-- トレイのリングゲージに使用率を色分け表示（緑/黄/赤）
-- 右クリックメニューでセッション/週次の使用率・リセット残り時間・プラン・最終更新を表示
-- 5分ごと自動更新（アイコンのダブルクリックで即時更新）
-- 追加ログイン不要（Claude Code が保存済みの OAuth トークンを再利用）
-- .NET ランタイム未導入のPCでも動く単一 exe
-
-### 動作条件
-
-- Windows 10/11
-- Claude Code がインストール済みでログイン済み（`%USERPROFILE%\.claude\.credentials.json` が存在すること）
+MIT — [LICENSE](LICENSE) を参照。
