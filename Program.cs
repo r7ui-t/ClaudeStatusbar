@@ -54,3 +54,4 @@ internal static class Program
         await File.WriteAllLinesAsync(outPath, lines);
     }
 }
+

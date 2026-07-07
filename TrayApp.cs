@@ -220,3 +220,4 @@ public sealed class TrayApp : ApplicationContext
         base.Dispose(disposing);
     }
 }
+
