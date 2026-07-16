@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 
-namespace ClaudeStatusbar;
+namespace QuotaBar;
 
 /// <summary>
 /// 取得結果をまとめた表示用スナップショット。
@@ -159,4 +159,3 @@ public sealed class ClaudeUsageClient
         _ => 0,
     };
 }
-

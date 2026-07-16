@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace ClaudeStatusbar;
+namespace QuotaBar;
 
 // ─────────────────────────────────────────────────────────────
 // 認証情報ファイル (%USERPROFILE%\.claude\.credentials.json) の形

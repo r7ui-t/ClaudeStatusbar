@@ -2,7 +2,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 
-namespace ClaudeStatusbar;
+namespace QuotaBar;
 
 /// <summary>
 /// アプリ/exe 用の app.ico を生成する。clay 色の角丸バッジに白い上昇バー

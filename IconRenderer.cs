@@ -3,7 +3,7 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Text;
 using System.Runtime.InteropServices;
 
-namespace ClaudeStatusbar;
+namespace QuotaBar;
 
 /// <summary>トレイアイコンの表示スタイル。右クリックメニューで切替可能。</summary>
 public enum IconStyle

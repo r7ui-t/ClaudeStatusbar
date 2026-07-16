@@ -8,9 +8,9 @@
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <AssemblyName>ClaudeStatusbar</AssemblyName>
+    <AssemblyName>QuotaBar</AssemblyName>
     <!-- 単一 exe 配布を見据えて。開発中はデバッグしやすさ優先で普通ビルド -->
-    <RootNamespace>ClaudeStatusbar</RootNamespace>
+    <RootNamespace>QuotaBar</RootNamespace>
     <!-- exe・タスクバー・ウィンドウのアイコン -->
     <ApplicationIcon>app.ico</ApplicationIcon>
     <Version>0.1.0</Version>

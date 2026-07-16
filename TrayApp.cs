@@ -1,10 +1,9 @@
 using System.Diagnostics;
 
-namespace ClaudeStatusbar;
+namespace QuotaBar;
 
 /// <summary>
-/// トレイ常駐の本体。ApplicationContext を継承すると Form を持たずに
-/// メッセージループを回せる（トレイアプリの定石）。
+/// Claude と Codex の利用状況をタスクトレイへ表示する本体。
 /// </summary>
 public sealed class TrayApp : ApplicationContext
 {
@@ -12,19 +11,34 @@ public sealed class TrayApp : ApplicationContext
 
     private readonly NotifyIcon _tray;
     private readonly System.Windows.Forms.Timer _timer;
-    private readonly ClaudeUsageClient _client = new();
-    private Icon? _currentIcon;
-
+    private readonly ClaudeUsageClient _claudeClient = new();
+    private readonly CodexUsageClient _codexClient = new();
+    private readonly SemaphoreSlim _refreshGate = new(1, 1);
     private readonly Settings _settings;
-    private IconStyle _style;
-    private UsageSnapshot? _last; // 直近の取得結果。スタイル切替時の再描画に使う
+    private Icon? _currentIcon;
+    private bool _disposed;
 
-    // メニュー項目（都度作り直さず更新する）
-    private readonly ToolStripMenuItem _miStatus;
-    private readonly ToolStripMenuItem _miSession;
-    private readonly ToolStripMenuItem _miWeekly;
-    private readonly ToolStripMenuItem _miScoped;
-    private readonly ToolStripMenuItem _miPlan;
+    private IconStyle _style;
+    private UsageSnapshot? _lastClaude;
+    private CodexUsageSnapshot? _lastCodex;
+    private bool _hasSuccessfulProvider;
+    private double _lastDisplayPercent;
+    private string _lastSeverity = "normal";
+
+    // Codex メニュー項目
+    private readonly ToolStripMenuItem _miCodexStatus;
+    private readonly ToolStripMenuItem _miCodexSession;
+    private readonly ToolStripMenuItem _miCodexWeekly;
+    private readonly ToolStripMenuItem _miCodexPlan;
+    private readonly ToolStripMenuItem _miCodexCredits;
+
+    // Claude メニュー項目
+    private readonly ToolStripMenuItem _miClaudeStatus;
+    private readonly ToolStripMenuItem _miClaudeSession;
+    private readonly ToolStripMenuItem _miClaudeWeekly;
+    private readonly ToolStripMenuItem _miClaudeScoped;
+    private readonly ToolStripMenuItem _miClaudePlan;
+
     private readonly ToolStripMenuItem _miUpdated;
     private readonly ToolStripMenuItem _miStyleNumber;
     private readonly ToolStripMenuItem _miStyleRing;
@@ -34,25 +48,39 @@ public sealed class TrayApp : ApplicationContext
         _settings = Settings.Load();
         _style = _settings.Style;
 
-        _miStatus = new ToolStripMenuItem("読み込み中…") { Enabled = false };
-        _miSession = new ToolStripMenuItem("セッション: —") { Enabled = false };
-        _miWeekly = new ToolStripMenuItem("週次: —") { Enabled = false };
-        _miScoped = new ToolStripMenuItem("週次(モデル別): —") { Enabled = false, Visible = false };
-        _miPlan = new ToolStripMenuItem("プラン: —") { Enabled = false };
-        _miUpdated = new ToolStripMenuItem("更新: —") { Enabled = false };
+        _miCodexStatus = DisabledItem("読み込み中…");
+        _miCodexSession = DisabledItem("5時間: —");
+        _miCodexWeekly = DisabledItem("週次: —");
+        _miCodexPlan = DisabledItem("プラン: —");
+        _miCodexCredits = DisabledItem("クレジット: —");
+
+        _miClaudeStatus = DisabledItem("読み込み中…");
+        _miClaudeSession = DisabledItem("5時間: —");
+        _miClaudeWeekly = DisabledItem("週次: —");
+        _miClaudeScoped = DisabledItem("モデル別週次: —");
+        _miClaudeScoped.Visible = false;
+        _miClaudePlan = DisabledItem("プラン: —");
+        _miUpdated = DisabledItem("更新: —");
 
         var menu = new ContextMenuStrip();
-        menu.Items.Add(_miStatus);
+        menu.Items.Add(DisabledItem("Codex"));
+        menu.Items.Add(_miCodexStatus);
+        menu.Items.Add(_miCodexSession);
+        menu.Items.Add(_miCodexWeekly);
+        menu.Items.Add(_miCodexPlan);
+        menu.Items.Add(_miCodexCredits);
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(_miSession);
-        menu.Items.Add(_miWeekly);
-        menu.Items.Add(_miScoped);
+        menu.Items.Add(DisabledItem("Claude"));
+        menu.Items.Add(_miClaudeStatus);
+        menu.Items.Add(_miClaudeSession);
+        menu.Items.Add(_miClaudeWeekly);
+        menu.Items.Add(_miClaudeScoped);
+        menu.Items.Add(_miClaudePlan);
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(_miPlan);
         menu.Items.Add(_miUpdated);
         menu.Items.Add(new ToolStripSeparator());
 
-        // アイコン表示スタイルの切替（右クリックメニュー内のサブメニュー）
+        // アイコン表示スタイルの切替は既存設定をそのまま利用する。
         var styleMenu = new ToolStripMenuItem("アイコン表示");
         _miStyleNumber = new ToolStripMenuItem("数字（大きく見やすい）");
         _miStyleRing = new ToolStripMenuItem("リング＋数字");
@@ -67,9 +95,14 @@ public sealed class TrayApp : ApplicationContext
         miRefresh.Click += async (_, _) => await RefreshAsync();
         menu.Items.Add(miRefresh);
 
-        var miOpen = new ToolStripMenuItem("認証情報フォルダを開く");
-        miOpen.Click += (_, _) => OpenCredentialsFolder();
-        menu.Items.Add(miOpen);
+        var credentialsMenu = new ToolStripMenuItem("認証情報フォルダ");
+        var miCodexCredentials = new ToolStripMenuItem("Codex（.codex）");
+        miCodexCredentials.Click += (_, _) => OpenCredentialsFolder(".codex");
+        var miClaudeCredentials = new ToolStripMenuItem("Claude（.claude）");
+        miClaudeCredentials.Click += (_, _) => OpenCredentialsFolder(".claude");
+        credentialsMenu.DropDownItems.Add(miCodexCredentials);
+        credentialsMenu.DropDownItems.Add(miClaudeCredentials);
+        menu.Items.Add(credentialsMenu);
 
         var miQuit = new ToolStripMenuItem("終了");
         miQuit.Click += (_, _) => ExitThread();
@@ -80,89 +113,206 @@ public sealed class TrayApp : ApplicationContext
         {
             Icon = _currentIcon,
             Visible = true,
-            Text = "Claude Statusbar — 起動中",
+            Text = "QuotaBar — 起動中",
             ContextMenuStrip = menu,
         };
-        // 左ダブルクリックでも手動更新
         _tray.DoubleClick += async (_, _) => await RefreshAsync();
 
         _timer = new System.Windows.Forms.Timer { Interval = (int)PollInterval.TotalMilliseconds };
         _timer.Tick += async (_, _) => await RefreshAsync();
         _timer.Start();
 
-        // 起動直後に一度取得
+        // コンストラクターをブロックするとメッセージループが始まらないため、初回取得は非同期で開始する。
         _ = RefreshAsync();
     }
 
+    private static ToolStripMenuItem DisabledItem(string text) =>
+        new(text) { Enabled = false };
+
     private async Task RefreshAsync()
     {
-        UsageSnapshot snap;
+        if (_disposed || !await _refreshGate.WaitAsync(0))
+            return;
+
         try
         {
-            snap = await _client.FetchAsync();
+            // 片方の API の遅延・失敗がもう片方の表示を消さないよう、プロバイダごとに例外を結果へ変換する。
+            var claudeTask = FetchClaudeSafelyAsync();
+            var codexTask = FetchCodexSafelyAsync();
+            await Task.WhenAll(claudeTask, codexTask);
+
+            if (!_disposed)
+                UpdateUi(await claudeTask, await codexTask, DateTimeOffset.Now);
+        }
+        finally
+        {
+            _refreshGate.Release();
+        }
+    }
+
+    private async Task<UsageSnapshot> FetchClaudeSafelyAsync()
+    {
+        try
+        {
+            return await _claudeClient.FetchAsync();
         }
         catch (Exception ex)
         {
-            snap = UsageSnapshot.Fail(ex.Message);
+            return UsageSnapshot.Fail($"取得失敗: {ex.Message}");
         }
-        UpdateUi(snap);
     }
 
-    private void UpdateUi(UsageSnapshot s)
+    private async Task<CodexUsageSnapshot> FetchCodexSafelyAsync()
     {
-        _last = s; // スタイル切替時に再描画できるよう保持
-
-        if (!s.Ok)
+        try
         {
+            return await _codexClient.FetchAsync();
+        }
+        catch (Exception ex)
+        {
+            return new CodexUsageSnapshot
+            {
+                Ok = false,
+                Error = $"取得失敗: {ex.Message}",
+                UpdatedAt = DateTimeOffset.Now,
+            };
+        }
+    }
+
+    private void UpdateUi(UsageSnapshot claude, CodexUsageSnapshot codex, DateTimeOffset updatedAt)
+    {
+        _lastClaude = claude;
+        _lastCodex = codex;
+
+        UpdateCodexMenu(codex);
+        UpdateClaudeMenu(claude);
+        _miUpdated.Text = $"更新: {updatedAt:HH:mm:ss}";
+
+        var successfulPercents = new List<double>();
+        if (codex.Ok)
+            successfulPercents.Add(codex.DisplayPercent);
+        if (claude.Ok)
+            successfulPercents.Add(claude.DisplayPercent);
+
+        if (successfulPercents.Count == 0)
+        {
+            _hasSuccessfulProvider = false;
             SwapIcon(IconRenderer.RenderError());
-            _tray.Text = Truncate($"Claude Statusbar — エラー");
-            _miStatus.Text = $"⚠ {s.Error}";
-            _miSession.Text = "セッション: —";
-            _miWeekly.Text = "週次: —";
-            _miScoped.Visible = false;
-            _miPlan.Text = "プラン: —";
-            _miUpdated.Text = $"更新: {s.UpdatedAt:HH:mm:ss}";
+            _tray.Text = BuildTooltip(claude, codex);
             return;
         }
 
-        SwapIcon(IconRenderer.Render(s.DisplayPercent, s.Severity ?? "normal", _style));
+        _hasSuccessfulProvider = true;
+        _lastDisplayPercent = successfulPercents.Max();
+        _lastSeverity = CalculateSeverity(_lastDisplayPercent, claude);
+        SwapIcon(IconRenderer.Render(_lastDisplayPercent, _lastSeverity, _style));
+        _tray.Text = BuildTooltip(claude, codex);
+    }
 
-        string sessionLine = $"セッション: {Pct(s.SessionPercent)}  (リセット {Countdown(s.SessionReset)})";
-        string weeklyLine = $"週次: {Pct(s.WeeklyPercent)}  (リセット {Countdown(s.WeeklyReset)})";
-
-        _miStatus.Text = "Claude Code 利用状況";
-        _miSession.Text = sessionLine;
-        _miWeekly.Text = weeklyLine;
-
-        if (s.ScopedPercent is not null)
+    private void UpdateCodexMenu(CodexUsageSnapshot s)
+    {
+        if (!s.Ok)
         {
-            _miScoped.Visible = true;
-            _miScoped.Text = $"週次({s.ScopedLabel ?? "モデル別"}): {Pct(s.ScopedPercent)}";
+            _miCodexStatus.Text = $"⚠ {s.Error ?? "取得に失敗しました。"}";
+            _miCodexSession.Text = "5時間: —";
+            _miCodexWeekly.Text = "週次: —";
+            _miCodexPlan.Text = "プラン: —";
+            _miCodexCredits.Text = "クレジット: —";
+            _miCodexCredits.Visible = false;
+            return;
+        }
+
+        object? rateLimitType = s.RateLimitReachedType;
+        var rateLimit = rateLimitType?.ToString();
+        _miCodexStatus.Text = string.IsNullOrWhiteSpace(rateLimit)
+            ? "Codex 利用状況"
+            : $"Codex 利用状況（制限: {rateLimit}）";
+        _miCodexSession.Text = $"5時間: {Pct(s.SessionPercent)}（リセット {Countdown(s.SessionReset)}）";
+        _miCodexWeekly.Text = $"週次: {Pct(s.WeeklyPercent)}（リセット {Countdown(s.WeeklyReset)}）";
+        _miCodexPlan.Text = $"プラン: {DisplayValue(s.PlanType)}";
+
+        object? balance = s.CreditBalance;
+        if (s.UnlimitedCredits == true)
+        {
+            _miCodexCredits.Visible = true;
+            _miCodexCredits.Text = "クレジット: 無制限";
+        }
+        else if (s.HasCredits == true && balance is not null)
+        {
+            _miCodexCredits.Visible = true;
+            _miCodexCredits.Text = $"クレジット: 残高 {balance}";
         }
         else
         {
-            _miScoped.Visible = false;
+            _miCodexCredits.Visible = false;
         }
-
-        _miPlan.Text = $"プラン: {s.SubscriptionType ?? "—"}";
-        _miUpdated.Text = $"更新: {s.UpdatedAt:HH:mm:ss}";
-
-        // ツールチップ（マウスホバー時）。64文字制限に注意
-        _tray.Text = Truncate($"Claude  S:{Pct(s.SessionPercent)} / W:{Pct(s.WeeklyPercent)}");
     }
 
-    // スタイルを選び、即座に再描画して選択を保存する
+    private void UpdateClaudeMenu(UsageSnapshot s)
+    {
+        if (!s.Ok)
+        {
+            _miClaudeStatus.Text = $"⚠ {s.Error ?? "取得に失敗しました。"}";
+            _miClaudeSession.Text = "5時間: —";
+            _miClaudeWeekly.Text = "週次: —";
+            _miClaudeScoped.Visible = false;
+            _miClaudePlan.Text = "プラン: —";
+            return;
+        }
+
+        _miClaudeStatus.Text = "Claude 利用状況";
+        _miClaudeSession.Text = $"5時間: {Pct(s.SessionPercent)}（リセット {Countdown(s.SessionReset)}）";
+        _miClaudeWeekly.Text = $"週次: {Pct(s.WeeklyPercent)}（リセット {Countdown(s.WeeklyReset)}）";
+
+        if (s.ScopedPercent is not null)
+        {
+            _miClaudeScoped.Visible = true;
+            _miClaudeScoped.Text = $"モデル別週次: {Pct(s.ScopedPercent)}";
+        }
+        else
+        {
+            _miClaudeScoped.Visible = false;
+        }
+
+        _miClaudePlan.Text = $"プラン: {DisplayValue(s.SubscriptionType)}";
+    }
+
+    private static string CalculateSeverity(double representativePercent, UsageSnapshot claude)
+    {
+        var severity = representativePercent >= 95
+            ? "critical"
+            : representativePercent >= 80
+                ? "warning"
+                : "normal";
+
+        // Claude API が返した severity が閾値より厳しい場合は安全側へ寄せる。
+        return HigherSeverity(severity, claude.Ok ? claude.Severity : null);
+    }
+
+    private static string HigherSeverity(string left, string? right) =>
+        SeverityRank(right) > SeverityRank(left) ? right! : left;
+
+    private static int SeverityRank(string? severity) => severity switch
+    {
+        "critical" => 3,
+        "warning" => 2,
+        "normal" => 1,
+        _ => 0,
+    };
+
+    // スタイルを選び、直近の代表値を使って即座に再描画して選択を保存する。
     private void SelectStyle(IconStyle style)
     {
-        if (_style == style) return;
+        if (_style == style)
+            return;
+
         _style = style;
         UpdateStyleChecks();
         _settings.IconStyle = style.ToString();
         _settings.Save();
 
-        // 直近データがあればそのまま描き替える（無ければ次回ポーリングで反映）
-        if (_last is { Ok: true } s)
-            SwapIcon(IconRenderer.Render(s.DisplayPercent, s.Severity ?? "normal", _style));
+        if (_hasSuccessfulProvider)
+            SwapIcon(IconRenderer.Render(_lastDisplayPercent, _lastSeverity, _style));
     }
 
     private void UpdateStyleChecks()
@@ -174,18 +324,29 @@ public sealed class TrayApp : ApplicationContext
     private void SwapIcon(Icon next)
     {
         _tray.Icon = next;
-        _currentIcon?.Dispose(); // 前のアイコンの GDI ハンドルを解放
+        _currentIcon?.Dispose();
         _currentIcon = next;
     }
 
-    private static string Pct(double? v) => v is null ? "—" : $"{v.Value:0}%";
+    private static string Pct(double? value) => value is null ? "—" : $"{value.Value:0}%";
 
-    // リセットまでの残り時間を "2h 15m" 形式で
+    private static string TooltipPct(double? value) => value is null ? "—" : $"{value.Value:0}";
+
+    private static string BuildTooltip(UsageSnapshot claude, CodexUsageSnapshot codex) =>
+        Truncate($"C:S{TooltipPct(codex.Ok ? codex.SessionPercent : null)}/W{TooltipPct(codex.Ok ? codex.WeeklyPercent : null)} " +
+                 $"A:S{TooltipPct(claude.Ok ? claude.SessionPercent : null)}/W{TooltipPct(claude.Ok ? claude.WeeklyPercent : null)}");
+
+    private static string DisplayValue(object? value) => value?.ToString() ?? "—";
+
+    // リセットまでの残り時間を "2h 15m" 形式で表示する。
     private static string Countdown(DateTimeOffset? reset)
     {
-        if (reset is null) return "—";
+        if (reset is null)
+            return "—";
+
         var span = reset.Value - DateTimeOffset.Now;
-        if (span <= TimeSpan.Zero) return "まもなく";
+        if (span <= TimeSpan.Zero)
+            return "まもなく";
         if (span.TotalHours >= 24)
             return $"{(int)span.TotalDays}d {span.Hours}h";
         if (span.TotalHours >= 1)
@@ -193,31 +354,36 @@ public sealed class TrayApp : ApplicationContext
         return $"{span.Minutes}m";
     }
 
-    // NotifyIcon.Text は 63 文字までしか設定できない
-    private static string Truncate(string s) => s.Length <= 63 ? s : s[..63];
+    // NotifyIcon.Text は 63 文字までしか設定できない。
+    private static string Truncate(string value) => value.Length <= 63 ? value : value[..63];
 
-    private static void OpenCredentialsFolder()
+    private static void OpenCredentialsFolder(string folderName)
     {
         var dir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude");
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), folderName);
         try
         {
             Process.Start(new ProcessStartInfo("explorer.exe", $"\"{dir}\"") { UseShellExecute = true });
         }
-        catch { /* フォルダが無い等は無視 */ }
+        catch
+        {
+            // フォルダが無い等はメインの利用状況表示を妨げない。
+        }
     }
 
     protected override void Dispose(bool disposing)
     {
         if (disposing)
         {
+            _disposed = true;
             _timer.Stop();
             _timer.Dispose();
             _tray.Visible = false;
             _tray.Dispose();
             _currentIcon?.Dispose();
+            // プロセス寿命と同じ小さなセマフォ。取得中に破棄すると finally の Release と競合する。
         }
+
         base.Dispose(disposing);
     }
 }
-

@@ -1,45 +1,33 @@
-# ClaudeStatusbar
+# QuotaBar
 
-Claude Code の**利用上限**（セッション/週次）と次のリセットまでの残り時間を、Windows のタスクトレイに一目で表示するアプリです。
+Claude Code と Codex の利用状況を、Windows のタスクトレイで確認できるアプリです。
 
 ## 機能
 
-- トレイアイコンに現在の使用率を表示。severity に応じて色分け（緑 / 黄 / 赤）
-- アイコン表示は右クリックメニューから切替可能
-  - 数字（大きく見やすい）
-  - リング＋数字
-- 右クリックメニューで以下を表示
-  - セッション使用率（5時間枠）＋リセットまでの残り時間
-  - 週次使用率（7日枠）＋リセットまでの残り時間
-  - モデル別の週次使用率（存在する場合）
-  - プランと最終更新時刻
-- 5分ごとに自動更新（アイコンのダブルクリック、または「今すぐ更新」で即時更新）
-- 追加ログイン不要（Claude Code が保存済みの OAuth トークンを再利用）
-- 単一の `.exe`（self-contained）— .NET ランタイム未導入の PC でも動作
+- Claude と Codex の利用状況を同時に取得して表示
+- 5時間枠・週次枠の使用率とリセットまでの残り時間を表示
+- Claude のモデル別週次使用率を表示（取得できる場合）
+- Codex のプランとクレジット残高を表示（取得できる場合）
+- 使用率の高いプロバイダを代表値としてトレイアイコンに表示
+- 使用率に応じたアイコンの色分け（通常 / 警告 / 重大）
+- アイコン表示を数字またはリング＋数字から選択
+- 5分ごとの自動更新、ダブルクリックとメニューからの手動更新
+- Codex と Claude の認証情報フォルダをメニューから開く
+- 設定を保存し、次回起動時もアイコン表示を維持
 
-## 動作条件
+## 必要条件
 
 - Windows 10 / 11
-- Claude Code がインストール済みでログイン済み（`%USERPROFILE%\.claude\.credentials.json` が存在すること）
+- 表示したいプロバイダの CLI がインストール済み・ログイン済み
+- Claude または Codex の片方だけでも利用可能
+- .NET 8 ランタイム（ソースから実行する場合）
 
-## ビルドと実行
+## 発行
+
+追加ランタイム不要の単一 exe を発行できます。
 
 ```powershell
-# ソースから実行
-dotnet run -c Release
-
-# 単一 exe（self-contained）を発行
 dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
 ```
 
-exe は `bin/Release/net8.0-windows/win-x64/publish/ClaudeStatusbar.exe` に生成されます。
-
-## 使い方メモ
-
-- Windows 11 では新規トレイアイコンが既定で隠れているインジケーター（`^`）の中に入ります。常時表示したい場合はタスクバーへドラッグしてください。
-- トークンが完全に失効した場合は Claude Code を一度起動すればトークンが更新され、次回ポーリングで自動的に反映されます。
-- アイコン表示の選択は `%APPDATA%\ClaudeStatusbar\settings.json` に保存され、次回起動時も維持されます。
-
-## ライセンス
-
-MIT — [LICENSE](LICENSE) を参照。
+発行先は `bin/Release/net8.0-windows/win-x64/publish/QuotaBar.exe` です。
